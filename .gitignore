@@ -2,8 +2,4 @@
 .Rhistory
 .RData
 .Ruserdata
-data
-transfer/
-renv/library/
-renv/staging/
-.ipynb_checkpoints/
+data/

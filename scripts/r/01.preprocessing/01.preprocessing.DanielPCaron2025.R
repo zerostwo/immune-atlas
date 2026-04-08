@@ -5,7 +5,7 @@ library(Seurat)
 
 outdir <- sn_set_path("data/processed/DanielPCaron2025/corrected")
 
-dirs <- sn_list_10x_paths("/mnt/public/DanielPCaron2025/alignments/count/")
+dirs <- sn_list_10x_paths("/home/sduan/data/DanielPCaron2025/alignments/count/")
 
 samples <- names(dirs)
 for (sample in samples) {
