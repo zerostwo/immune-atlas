@@ -3,25 +3,34 @@ library(Shennong)
 library(glue)
 library(Seurat)
 
-outdir <- sn_set_path("data/processed/NataliaJaeger2024/corrected")
+outdir <- sn_set_path("data/processed/NataliaJaeger2024/corrected_soupx")
 
-dirs <- sn_list_10x_paths("/mnt/public/NataliaJaeger2024/alignments/")
-for (sample in names(dirs)) {
+dirs <- sn_list_10x_paths("/home/sduan/data/NataliaJaeger2024/",
+                          path_type = "filtered_h5")
+raw <- sn_list_10x_paths("/home/sduan/data/NataliaJaeger2024/",
+                          path_type = "raw_h5")
+
+samples <- names(dirs)
+# samples <- list.files(file.path(outdir, "seurat_object"),
+#                       pattern = "qs") %>% str_remove_all(".qs")
+for (sample in samples) {
     print(sample)
-    
+
     so_path <- glue("{outdir}/seurat_object/{sample}.qs")
     if (!file.exists(so_path)) {
         seurat_obj <- sn_initialize_seurat_object(x = dirs[sample])
         seurat_obj <- sn_filter_cells(seurat_obj, features = c("percent.mt", "nFeature_RNA"))
         seurat_obj <- sn_filter_genes(seurat_obj, min_cells = 1)
-        seurat_obj <- sn_remove_ambient_contamination(seurat_obj)
+        seurat_obj <- sn_remove_ambient_contamination(seurat_obj,
+                                                      method = "soupx",
+                                                      raw = raw[sample])
         seurat_obj <- sn_find_doublets(seurat_obj, layer = "decontaminated_counts")
-        
+
         sn_write(seurat_obj, path = so_path)
     } else {
         seurat_obj <- sn_read(so_path)
     }
-    
+
     bpcells_so_path <- glue("{outdir}/bpcells/{sample}.qs")
     if (!file.exists(bpcells_so_path)) {
         bpcells_path <- glue("{outdir}/bpcells/{sample}")
@@ -31,30 +40,30 @@ for (sample in names(dirs)) {
                      overwrite = TRUE)
         counts <- sn_read(bpcells_path)
         LayerData(seurat_obj, layer = "counts") <- counts
-        
+
         bpcells_path <- glue("{outdir}/bpcells/{sample}_corrected")
-        LayerData(seurat_obj, layer = "counts") |>
+        LayerData(seurat_obj, layer = "decontaminated_counts") |>
             sn_write(path = bpcells_path,
                      to = "bpcells",
                      overwrite = TRUE)
         counts <- sn_read(bpcells_path)
         LayerData(seurat_obj, layer = "decontaminated_counts") <- counts
-        
+
         sn_write(seurat_obj, path = bpcells_so_path)
     }
 }
 
 if (FALSE) {
     mat <- sn_read(
-        "/mnt/public/NataliaJaeger2024/alignments/Tonsils_PBMC_NK_cells/outs/filtered_feature_bc_matrix.h5"
+        "~/data/NataliaJaeger2024/Tonsils_PBMC_NK_cells/filtered_feature_bc_matrix.h5"
     )
     counts <- mat$`Gene Expression`
     adt <- mat$`Antibody Capture`
-    
+
     hto_ids <- rownames(adt)[str_detect(rownames(adt), "TotalSeq")]
-    
+
     hto <- adt[rownames(adt) %in% hto_ids, ]
-    
+
     seurat_obj <- sn_initialize_seurat_object(x = counts, species = "human")
     seurat_obj[["ADT"]] <- CreateAssay5Object(counts = adt)
     seurat_obj[["HTO"]] <- CreateAssay5Object(counts = hto)
@@ -65,33 +74,34 @@ if (FALSE) {
     #     subset(nFeature_RNA > 500) |>
     #     subset(nCount_RNA > 1000)
     seurat_obj <- sn_filter_cells(seurat_obj, features = c("percent.mt", "nFeature_RNA"))
-    
+
     raw <- sn_read(
-        "/mnt/public/NataliaJaeger2024/alignments/Tonsils_PBMC_NK_cells/outs/raw_feature_bc_matrix/"
+        "~/data/NataliaJaeger2024/Tonsils_PBMC_NK_cells/raw_feature_bc_matrix.h5"
     )
-    seurat_obj <- sn_remove_ambient_contamination(seurat_obj, raw = raw$`Gene Expression`)
-    
+    seurat_obj <- sn_remove_ambient_contamination(seurat_obj, raw = raw$`Gene Expression`,
+                                                  method = "soupx")
+
     seurat_obj <- NormalizeData(seurat_obj, layer = "decontaminated_counts")
     seurat_obj <- FindVariableFeatures(seurat_obj, selection.method = "mean.var.plot")
     seurat_obj <- ScaleData(seurat_obj, features = VariableFeatures(seurat_obj))
     seurat_obj <- NormalizeData(seurat_obj,
                                 assay = "HTO",
                                 normalization.method = "CLR")
-    
+
     seurat_obj <- HTODemux(seurat_obj,
                            assay = "HTO",
                            positive.quantile = 0.99)
-    
+
     table(seurat_obj$HTO_classification.global)
     Idents(seurat_obj) <- "HTO_classification.global"
     seurat_obj <- subset(seurat_obj, idents = "Singlet")
     seurat_obj$sample <- seurat_obj$HTO_maxID
     print(table(seurat_obj$sample))
     seurat_obj <- sn_find_doublets(seurat_obj, layer = "decontaminated_counts")
-    
+
     sample <- "Tonsils_PBMC_NK_cells"
     sn_write(seurat_obj, path = glue("{outdir}/seurat_object/{sample}.qs"))
-    
+
     bpcells_path <- glue("{outdir}/bpcells/{sample}")
     LayerData(seurat_obj, layer = "counts") |>
         sn_write(path = bpcells_path,
@@ -102,7 +112,7 @@ if (FALSE) {
     seurat_obj$orig.ident <- seurat_obj$sample
     colnames(seurat_obj) <- paste0(seurat_obj$sample, "_", colnames(seurat_obj))
     sn_write(seurat_obj, path = glue("{outdir}/bpcells/{sample}.qs"))
-    
+
 }
 # Clustering --------------------------------------------------------------
 if (FALSE) {
@@ -196,7 +206,7 @@ if (FALSE) {
     )
     sn_write(blood,
              "data/processed/NataliaJaeger2024/corrected/annotation/Blood.qs")
-    
+
     # 2. Tonsil
     tonsil1 <- sn_read("data/processed/NataliaJaeger2024/corrected/seurat_object/Tonsil1.qs")
     tonsil2 <- sn_read("data/processed/NataliaJaeger2024/corrected/seurat_object/Tonsil2.qs")
@@ -223,13 +233,13 @@ if (FALSE) {
     tonsil <- merge(tonsil4,
                     y = c(tonsil5),
                     add.cell.ids = c("Tonsil4", "Tonsil5"))
-    
+
     tonsil <- JoinLayers(tonsil, layers = c("counts", "decontaminated_counts"))
     tonsil@assays$ADT <- NULL
     tonsil@assays$HTO <- NULL
     LayerData(tonsil, layer = "data.6") <- NULL
     LayerData(tonsil, layer = "scale.data.6") <- NULL
-    
+
     table(tonsil$scDblFinder.class_corrected)
     quantile(tonsil$nFeature_RNA)
     quantile(tonsil$percent.mt)
@@ -265,7 +275,7 @@ if (FALSE) {
     tonsil <- sn_find_de(tonsil, analysis = "markers", layer = "decontaminated_counts")
     markers <- sn_get_de_result(tonsil, top_n = 20)
     split(markers$gene, markers$cluster)
-    
+
     tonsil@meta.data <- tonsil@meta.data |>
         mutate(
             cell_type_level2 = case_when(
@@ -284,7 +294,7 @@ if (FALSE) {
     )
     sn_write(tonsil,
              "data/processed/NataliaJaeger2024/corrected/annotation/Tonsil.qs")
-    
+
     # 3. Lung
-    
+
 }

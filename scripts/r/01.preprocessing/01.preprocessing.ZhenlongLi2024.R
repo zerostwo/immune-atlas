@@ -3,56 +3,60 @@ library(Shennong)
 library(glue)
 library(Seurat)
 
-outdir <- sn_set_path("data/processed/ZhenlongLi2024/corrected")
+outdir <- sn_set_path("data/processed/ZhenlongLi2024/corrected_soupx")
 
-dirs <- sn_list_10x_paths("/home/sduan/data/ZhenlongLi2024/alignments/")
+dirs <- sn_list_10x_paths("/home/sduan/data/ZhenlongLi2024/", path_type = "filtered_h5")
+raw <- sn_list_10x_paths("/home/sduan/data/ZhenlongLi2024/", path_type = "raw_h5")
 for (sample in names(dirs)) {
   print(sample)
-  so_path <- glue("{outdir}/seurat_object/{sample}.qs")
+  so_path <- glue("{outdir}/seurat_object/{sample}.qs2")
   if (!file.exists(so_path)) {
     seurat_obj <- sn_initialize_seurat_object(x = dirs[sample])
     seurat_obj <- sn_filter_cells(seurat_obj, features = c("percent.mt", "nFeature_RNA"))
     seurat_obj <- sn_filter_genes(seurat_obj, min_cells = 1)
-    seurat_obj <- sn_remove_ambient_contamination(seurat_obj)
+    seurat_obj <- sn_remove_ambient_contamination(seurat_obj,
+                                                  method = "soupx",
+                                                  raw = raw[sample])
     seurat_obj <- sn_find_doublets(seurat_obj, layer = "decontaminated_counts")
-    
+
     sn_write(seurat_obj, path = so_path)
-    
-    bpcells_path <- glue("{outdir}/bpcells/{sample}")
-    LayerData(seurat_obj, layer = "counts") |>
-      sn_write(path = bpcells_path,
-               to = "bpcells",
-               overwrite = TRUE)
-    counts <- sn_read(bpcells_path)
-    LayerData(seurat_obj, layer = "counts") <- counts
-    
-    bpcells_path <- glue("{outdir}/bpcells/{sample}_corrected")
-    LayerData(seurat_obj, layer = "counts") |>
-      sn_write(path = bpcells_path,
-               to = "bpcells",
-               overwrite = TRUE)
-    counts <- sn_read(bpcells_path)
-    LayerData(seurat_obj, layer = "decontaminated_counts") <- counts
-    
-    sn_write(seurat_obj, path = glue("{outdir}/bpcells/{sample}.qs"))
+  } else {
+    seurat_obj <- sn_read(so_path)
   }
+  bpcells_path <- glue("{outdir}/bpcells/{sample}")
+  LayerData(seurat_obj, layer = "counts") |>
+    sn_write(path = bpcells_path,
+             to = "bpcells",
+             overwrite = TRUE)
+  counts <- sn_read(bpcells_path)
+  LayerData(seurat_obj, layer = "counts") <- counts
+
+  bpcells_path <- glue("{outdir}/bpcells/{sample}_corrected")
+  LayerData(seurat_obj, layer = "decontaminated_counts") |>
+    sn_write(path = bpcells_path,
+             to = "bpcells",
+             overwrite = TRUE)
+  counts <- sn_read(bpcells_path)
+  LayerData(seurat_obj, layer = "decontaminated_counts") <- counts
+
+  sn_write(seurat_obj, path = glue("{outdir}/bpcells/{sample}.qs2"))
 }
 
-files <- list.files(glue("{outdir}/bpcells"),
-                    pattern = "qs",
-                    full.names = TRUE)
-ZhenlongLi2024 <- map(files, sn_read)
-ZhenlongLi2024 <- merge(x = ZhenlongLi2024[[1]],
-                        y = ZhenlongLi2024[-1],
-                        add.cell.ids = str_remove_all(basename(files), ".qs"))
-
-ZhenlongLi2024 <- JoinLayers(ZhenlongLi2024, layers = c("counts", "decontaminated_counts"))
-ZhenlongLi2024$study <- "ZhenlongLi2024"
-
-sn_write(
-  ZhenlongLi2024,
-  "/home/sduan/projects/immune-atlas/data/processed/ZhenlongLi2024/merged.qs"
-)
+# files <- list.files(glue("{outdir}/bpcells"),
+#                     pattern = "qs",
+#                     full.names = TRUE)
+# ZhenlongLi2024 <- map(files, sn_read)
+# ZhenlongLi2024 <- merge(x = ZhenlongLi2024[[1]],
+#                         y = ZhenlongLi2024[-1],
+#                         add.cell.ids = str_remove_all(basename(files), ".qs"))
+#
+# ZhenlongLi2024 <- JoinLayers(ZhenlongLi2024, layers = c("counts", "decontaminated_counts"))
+# ZhenlongLi2024$study <- "ZhenlongLi2024"
+#
+# sn_write(
+#   ZhenlongLi2024,
+#   "/home/sduan/projects/immune-atlas/data/processed/ZhenlongLi2024/merged.qs"
+# )
 
 if (FALSE) {
   # Health
@@ -142,56 +146,4 @@ if (FALSE) {
   )
   sn_write(blood,
            "data/processed/NataliaJaeger2024/corrected/annotation/Blood.qs")
-  
-  # outdir <- sn_set_path("data/processed/20260328/ZhenlongLi2024")
-  #
-  # samples <- list.files("/home/sduan/data/ZhenlongLi2024/alignments")
-  # filtered_data_dirs <- glue("/home/sduan/data/ZhenlongLi2024/alignments/{samples}/outs/filtered_feature_bc_matrix/")
-  # names(filtered_data_dirs) <- samples
-  # filtered_data_dirs <- filtered_data_dirs[dir.exists(filtered_data_dirs)]
-  # length(filtered_data_dirs)
-  
-  # for (sample in names(filtered_data_dirs)) {
-  #   # sample <- samples[1]
-  #   print(sample)
-  #   so_path <- glue("{outdir}/seurat_object/{sample}.qs")
-  #   if (!file.exists(so_path)) {
-  #     seurat_obj <- sn_initialize_seurat_object(
-  #       x = filtered_data_dirs[sample], species = "human",
-  #       min_features = 100
-  #     )
-  #     raw_counts <- sn_read(str_replace(filtered_data_dirs[sample], "filtered", "raw"))
-  #     seurat_obj <- sn_remove_ambient_contamination(
-  #       seurat_obj, raw = raw_counts
-  #     )
-  #     seurat_obj <- sn_filter_cells(seurat_obj, features = c("nFeature_RNA","percent.mt"))
-  #     seurat_obj <- sn_find_doublets(
-  #       seurat_obj, layer = "decontaminated_counts"
-  #     )
-  #     print(table(seurat_obj$scDblFinder.class_corrected))
-  #     sn_write(seurat_obj, path = so_path)
-  #
-  #     # bpcells_path <- glue("{outdir}/bpcells/{sample}")
-  #     # LayerData(seurat_obj,layer = "counts") |>
-  #     #   sn_write(path = bpcells_path, to = "bpcells",overwrite = TRUE)
-  #     # counts <- sn_read(bpcells_path)
-  #     # LayerData(seurat_obj, layer = "counts") <- counts
-  #     # sn_write(seurat_obj, path = glue("{outdir}/bpcells/{sample}.qs"))
-  #   }
-  # }
-  
-  # files <- list.files(
-  #   glue("{outdir}/bpcells"),
-  #   pattern = "qs",
-  #   full.names = TRUE
-  # )
-  # ZhenlongLi2024 <- map(files, sn_read)
-  # ZhenlongLi2024 <- merge(
-  #   x = ZhenlongLi2024[[1]],
-  #   y = ZhenlongLi2024[-1]
-  # )
-  # ZhenlongLi2024 <- JoinLayers(ZhenlongLi2024)
-  # ZhenlongLi2024$study <- "ZhenlongLi2024"
-  #
-  # sn_write(ZhenlongLi2024, "/home/sduan/projects/immune-atlas/data/processed/ZhenlongLi2024/merged.qs")
 }

@@ -3,11 +3,15 @@ library(Shennong)
 library(glue)
 library(Seurat)
 
-outdir <- sn_set_path("data/processed/AndrewDHildreth2021/corrected")
+outdir <- sn_set_path("data/processed/AndrewDHildreth2021/corrected_soupx/")
 
-dirs <- sn_list_10x_paths("/mnt/public/AndrewDHildreth2021/alignments")
+dirs <- sn_list_10x_paths("/home/sduan/data/AndrewDHildreth2021",
+                          path_type = "filtered_h5")
+raw <- sn_list_10x_paths("/home/sduan/data/AndrewDHildreth2021",
+                         path_type = "raw_h5")
 samples <- names(dirs)
-
+# samples <- list.files(file.path(outdir, "seurat_object"),
+#                       pattern = "qs") %>% str_remove_all(".qs")
 for (sample in samples) {
     print(sample)
     so_path <- glue("{outdir}/seurat_object/{sample}.qs")
@@ -15,14 +19,15 @@ for (sample in samples) {
         seurat_obj <- sn_initialize_seurat_object(x = dirs[sample])
         seurat_obj <- sn_filter_cells(seurat_obj, features = c("percent.mt", "nFeature_RNA"))
         seurat_obj <- sn_filter_genes(seurat_obj, min_cells = 1)
-        seurat_obj <- sn_remove_ambient_contamination(seurat_obj)
+        seurat_obj <- sn_remove_ambient_contamination(seurat_obj, method = "soupx",
+                                                      raw = raw[sample])
         seurat_obj <- sn_find_doublets(seurat_obj, layer = "decontaminated_counts")
-        
+
         sn_write(seurat_obj, path = so_path)
     } else {
         seurat_obj <- sn_read(so_path)
     }
-    
+
     bpcells_so_path <- glue("{outdir}/bpcells/{sample}.qs")
     if (!file.exists(bpcells_so_path)) {
         bpcells_path <- glue("{outdir}/bpcells/{sample}")
@@ -32,15 +37,15 @@ for (sample in samples) {
                      overwrite = TRUE)
         counts <- sn_read(bpcells_path)
         LayerData(seurat_obj, layer = "counts") <- counts
-        
+
         bpcells_path <- glue("{outdir}/bpcells/{sample}_corrected")
-        LayerData(seurat_obj, layer = "counts") |>
+        LayerData(seurat_obj, layer = "decontaminated_counts") |>
             sn_write(path = bpcells_path,
                      to = "bpcells",
                      overwrite = TRUE)
         counts <- sn_read(bpcells_path)
         LayerData(seurat_obj, layer = "decontaminated_counts") <- counts
-        
+
         sn_write(seurat_obj, path = bpcells_so_path)
     }
 }
